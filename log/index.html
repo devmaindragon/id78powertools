@@ -1,2 +1,62 @@
-MGREMAPS · Power Display log
-Link okunuyor...
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mgremaps - Power Display Log</title>
+<style>
+ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#0b0c10;color:#eef0f3}
+ header{padding:14px 16px;border-bottom:1px solid #2a2d33}header b{color:#e0202c}
+ main{padding:12px 16px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:4px 6px;border-bottom:1px solid #23262c;text-align:right;white-space:nowrap}
+ th{position:sticky;top:0;background:#15171c;color:#9aa0a8;font-weight:500}td:first-child,th:first-child{text-align:left}
+ .wrap{overflow:auto;max-height:70vh}.btn{display:inline-block;margin:8px 8px 8px 0;padding:10px 14px;background:#e0202c;color:#fff;border-radius:8px;text-decoration:none;font-weight:600}
+ .sum{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:10px 0}.c{background:#15171c;border-radius:8px;padding:8px}.c small{color:#9aa0a8;display:block}.c span{font-size:20px}
+ .err{color:#ff6b6b}
+</style></head><body>
+<header><b>MG</b>REMAPS &middot; Power Display log <span id="meta" style="color:#9aa0a8"></span></header>
+<main>
+ <div id="out"><p>Link okunuyor...</p></div>
+</main>
+<script>
+// Ayni bicim, uygulamanin pdlog.js dosyasi ile: baslik (v1, hz, n), alan basina zigzag varint delta, deflate-raw, base64url.
+const F=[['oil','Oil °C',1],['coolant','Water °C',1],['egt','Exhaust °C',1],['boost','Boost bar',100],['iat','IAT °C',1],
+  ['timing','Timing °',2],['misfire','Misfire',1],['rpm','RPM',1],['speed','km/h',1],['gx','g lat',50],['gy','g long',50]];
+const SENT=-32768;
+function b64url(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
+// raw inflate (RFC 1951), pure JS fallback for browsers without DecompressionStream('deflate-raw') (iOS < 16.4)
+function inflateRawJS(src){
+  let pos=0,bitBuf=0,bitCnt=0; const out=[];
+  const bits=(n)=>{ while(bitCnt<n){ if(pos>=src.length) throw new Error('veri eksik'); bitBuf|=src[pos++]<<bitCnt; bitCnt+=8; } const v=bitBuf&((1<<n)-1); bitBuf>>>=n; bitCnt-=n; return v; };
+  function buildHuff(lengths){ const maxLen=Math.max(...lengths); const count=new Array(maxLen+1).fill(0); for(const l of lengths) if(l) count[l]++; const next=[0]; let code=0; for(let i=1;i<=maxLen;i++){ code=(code+count[i-1])<<1; next[i]=code; } const codes={}; for(let sym=0;sym<lengths.length;sym++){ const l=lengths[sym]; if(l){ let c=next[l]++; let r=0; for(let i=0;i<l;i++){ r=(r<<1)|(c&1); c>>=1; } codes[(l<<16)|r]=sym; } } return {codes,maxLen}; }
+  function decodeSym(h){ let code=0; for(let len=1;len<=h.maxLen;len++){ code|=bits(1)<<(len-1); const s=h.codes[(len<<16)|code]; if(s!==undefined) return s; } throw new Error('huffman'); }
+  const LBASE=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258], LEXT=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  const DBASE=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577], DEXT=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+  let fin=0;
+  do{ fin=bits(1); const type=bits(2);
+    if(type===0){ bitBuf=0; bitCnt=0; const len=src[pos]|(src[pos+1]<<8); pos+=4; for(let i=0;i<len;i++) out.push(src[pos++]); continue; }
+    let lit,dist;
+    if(type===1){ const l=new Array(288); for(let i=0;i<144;i++) l[i]=8; for(let i=144;i<256;i++) l[i]=9; for(let i=256;i<280;i++) l[i]=7; for(let i=280;i<288;i++) l[i]=8; lit=buildHuff(l); dist=buildHuff(new Array(30).fill(5)); }
+    else if(type===2){ const hlit=bits(5)+257, hdist=bits(5)+1, hclen=bits(4)+4; const ORDER=[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15]; const cl=new Array(19).fill(0); for(let i=0;i<hclen;i++) cl[ORDER[i]]=bits(3); const ch=buildHuff(cl); const lens=[]; while(lens.length<hlit+hdist){ const sym=decodeSym(ch); if(sym<16) lens.push(sym); else if(sym===16){ const prev=lens[lens.length-1]; const n=3+bits(2); for(let i=0;i<n;i++) lens.push(prev); } else if(sym===17){ const n=3+bits(3); for(let i=0;i<n;i++) lens.push(0); } else { const n=11+bits(7); for(let i=0;i<n;i++) lens.push(0); } } lit=buildHuff(lens.slice(0,hlit)); dist=buildHuff(lens.slice(hlit)); }
+    else throw new Error('blok tipi');
+    for(;;){ const sym=decodeSym(lit); if(sym<256){ out.push(sym); continue; } if(sym===256) break; const li=sym-257; const len=LBASE[li]+bits(LEXT[li]); const di=decodeSym(dist); const d=DBASE[di]+bits(DEXT[di]); const start=out.length-d; for(let i=0;i<len;i++) out.push(out[start+i]); }
+  } while(!fin);
+  return new Uint8Array(out);
+}
+async function inflateRaw(bytes){
+  if (typeof DecompressionStream==='function'){ try{ const ds=new DecompressionStream('deflate-raw'); const w=ds.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(ds.readable).arrayBuffer()); }catch(e){ /* fall through */ } }
+  return inflateRawJS(bytes);
+}
+function unpack(buf){ if(buf[0]!==1) throw new Error('bilinmeyen log surumu '+buf[0]); const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
+  const rd=()=>{ let z=0,m=1,b; do{ b=buf[o++]; z+=(b&127)*m; m*=128; }while(b&128); return (z%2)?-(z+1)/2:z/2; };
+  for(let r=0;r<n;r++){ const cur=F.map((f,i)=>(prev?prev[i]:0)+rd()); prev=cur; const row={t:r/hz}; F.forEach(([k,l,sc],i)=>{ row[k]=cur[i]===SENT?null:cur[i]/sc; }); rows.push(row); } return {hz,rows}; }
+(async()=>{ const out=document.getElementById('out');
+ try{ const h=location.hash.slice(1); if(!h) throw new Error('Bu sayfa, aracin ekranindaki QR kodu okutularak acilir.');
+  const parts=h.split('.'); if(parts[0]!=='v1') throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
+  const {hz,rows}=unpack(await inflateRaw(b64url(data)));
+  document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
+  const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?Math.max(...v):null; };
+  let html='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+' (tepe)</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
+  html+='<a class="btn" id="csv" href="#">CSV indir</a><div class="wrap"><table><thead><tr><th>t (sn)</th>'+F.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>';
+  for(const r of rows){ html+='<tr><td>'+r.t.toFixed(1)+'</td>'+F.map(([k])=>'<td>'+(r[k]===null?'--':r[k])+'</td>').join('')+'</tr>'; } html+='</tbody></table></div>';
+  out.innerHTML=html;
+  const csv='t,'+F.map(f=>f[0]).join(',')+'\n'+rows.map(r=>r.t+','+F.map(([k])=>r[k]===null?'':r[k]).join(',')).join('\n');
+  const a=document.getElementById('csv'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='powerdisplay_'+vin+'.csv';
+ }catch(e){ out.innerHTML='<p class="err">Hata: '+(e.message||e)+'</p><p style="color:#9aa0a8">Tarayici: '+navigator.userAgent+'</p>'; } })();
+</script></body></html>
