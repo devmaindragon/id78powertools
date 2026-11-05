@@ -14,6 +14,10 @@
  .tag{font-size:12px;padding:3px 8px;border-radius:999px;font-weight:600;white-space:nowrap}.t-crit{background:#e0202c33;color:#ff6b6b;border:1px solid #e0202c88}
  .t-warn{background:#ffb02022;color:#ffc24d;border:1px solid #ffb02077}.t-dim{background:#ffffff14;color:#b9bec6;border:1px solid #ffffff33}
  .pg{color:#9aa0a8;font-size:13px;margin-top:10px}.btn2{background:#2a2d33}
+ .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 8px}.chip{border:1px solid #3a3e46;border-radius:999px;padding:5px 10px;font-size:13px;color:#9aa0a8;background:none}
+ .chip.on{color:#fff;border-color:var(--c);background:color-mix(in srgb,var(--c) 22%,transparent)}.chip i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}
+ .gbox{background:#15171c;border-radius:10px;padding:8px}#g{width:100%;height:260px;display:block;touch-action:none}
+ .rd{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;min-height:18px;margin-top:6px;color:#9aa0a8}.rd b{color:#eef0f3;font-weight:600}
 </style></head><body>
 <header>dev.main.dragon <span id="meta" style="color:#9aa0a8"></span></header>
 <main>
@@ -74,17 +78,47 @@ async function showFaults(out, vin, data){
   const plain='VIN ...'+vin+' - '+when+(pages>1?' (QR '+page+'/'+pages+')':'')+'\n'+rows.map(r=>r.unit+' '+r.code+' '+stat(r.st)[0]+(r.info?' BILGI':'')+' - '+r.desc).join('\n');
   document.getElementById('cp').onclick=async(ev)=>{ ev.preventDefault(); try{ await navigator.clipboard.writeText(plain); ev.target.textContent='Kopyalandi'; }catch(e){ prompt('Metni kopyala:',plain); } };
 }
+// Grafik: secilen degerler, her biri kendi olceginde (0-100 %), dokununca o andaki degerler
+const COLS={boost:'#e0202c',rpm:'#4da3ff',timing:'#ffc24d',oil:'#ff8a3d',coolant:'#3dd6c6',egt:'#ff5fa2',iat:'#9b7bff',misfire:'#ff6b6b',speed:'#8fd14f',gx:'#c9ced6',gy:'#7f8792'};
+function chart(rows){
+  const cv=document.getElementById('g'), rd=document.getElementById('rd'), chips=document.getElementById('chips');
+  let sel=(localStorage.getItem('pdsel')||'boost,rpm,timing').split(',').filter(k=>F.some(f=>f[0]===k));
+  let cur=null;
+  const range=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); if(!v.length) return null; let lo=Math.min(...v), hi=Math.max(...v); if(hi===lo){ hi+=1; lo-=1; } return [lo,hi]; };
+  function draw(){
+    const dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight; cv.width=W*dpr; cv.height=H*dpr;
+    const c=cv.getContext('2d'); c.scale(dpr,dpr); c.clearRect(0,0,W,H);
+    const pl=6, pr=6, pt=8, pb=20, gw=W-pl-pr, gh=H-pt-pb, n=rows.length, T=rows[n-1].t||1;
+    const X=(t)=>pl+t/T*gw;
+    c.strokeStyle='#23262c'; c.lineWidth=1; c.fillStyle='#7f8792'; c.font='11px sans-serif';
+    for(let i=0;i<=4;i++){ const y=pt+gh*i/4; c.beginPath(); c.moveTo(pl,y); c.lineTo(pl+gw,y); c.stroke(); }
+    for(let s=0;s<=T;s+=10){ const x=X(s); c.fillText(s+'s',Math.min(x,W-22),H-4); }
+    for(const k of sel){ const r=range(k); if(!r) continue; const Y=(v)=>pt+gh-(v-r[0])/(r[1]-r[0])*gh;
+      c.strokeStyle=COLS[k]||'#fff'; c.lineWidth=2; c.beginPath(); let st=false;
+      for(const row of rows){ if(row[k]===null){ st=false; continue; } const x=X(row.t), y=Y(row[k]); if(!st){ c.moveTo(x,y); st=true; } else c.lineTo(x,y); } c.stroke(); }
+    if(cur!==null){ const row=rows[cur], x=X(row.t); c.strokeStyle='#ffffffaa'; c.lineWidth=1; c.beginPath(); c.moveTo(x,pt); c.lineTo(x,pt+gh); c.stroke();
+      rd.innerHTML='<span>'+row.t.toFixed(1)+' sn</span>'+sel.map(k=>{ const f=F.find(f=>f[0]===k); return '<span style="color:'+COLS[k]+'">'+f[1]+' <b>'+(row[k]===null?'--':row[k])+'</b></span>'; }).join('');
+    } else rd.innerHTML='<span>Grafige dokun: o andaki degerler</span>';
+  }
+  function pick(ev){ const r=cv.getBoundingClientRect(), x=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left; cur=Math.max(0,Math.min(rows.length-1,Math.round((x-6)/(r.width-12)*(rows.length-1)))); draw(); }
+  cv.addEventListener('pointerdown',pick); cv.addEventListener('pointermove',(e)=>{ if(e.buttons||e.pointerType==='touch') pick(e); });
+  chips.innerHTML=F.map(([k,l])=>'<button class="chip'+(sel.includes(k)?' on':'')+'" data-k="'+k+'" style="--c:'+(COLS[k]||'#fff')+'"><i></i>'+l+'</button>').join('');
+  chips.onclick=(e)=>{ const b=e.target.closest('.chip'); if(!b) return; const k=b.dataset.k; sel=sel.includes(k)?sel.filter(x=>x!==k):sel.concat([k]); b.classList.toggle('on'); try{ localStorage.setItem('pdsel',sel.join(',')); }catch(_){} draw(); };
+  window.addEventListener('resize',draw); cur=Math.round(rows.length*0.45); draw();
+}
 (async()=>{ const out=document.getElementById('out');
  try{ const h=location.hash.slice(1); if(!h) throw new Error('Bu sayfa, aracin ekranindaki QR kodu okutularak acilir.');
   const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(parts[0]!=='v1') throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
   const {hz,rows}=unpack(await inflateRaw(b64url(data)));
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
   const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?Math.max(...v):null; };
-  let html='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+' (tepe)</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
+  let html='<div class="gbox"><canvas id="g"></canvas><div class="rd" id="rd"></div></div><div class="chips" id="chips"></div>';
+  html+='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+' (tepe)</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
   html+='<a class="btn" id="csv" href="#">CSV indir</a><div class="wrap"><table><thead><tr><th>t (sn)</th>'+F.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>';
   for(const r of rows){ html+='<tr><td>'+r.t.toFixed(1)+'</td>'+F.map(([k])=>'<td>'+(r[k]===null?'--':r[k])+'</td>').join('')+'</tr>'; } html+='</tbody></table></div>';
   out.innerHTML=html;
   const csv='t,'+F.map(f=>f[0]).join(',')+'\n'+rows.map(r=>r.t+','+F.map(([k])=>r[k]===null?'':r[k]).join(',')).join('\n');
   const a=document.getElementById('csv'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='powerdisplay_'+vin+'.csv';
+  chart(rows);
  }catch(e){ out.innerHTML='<p class="err">Hata: '+(e.message||e)+'</p><p style="color:#9aa0a8">Tarayici: '+navigator.userAgent+'</p>'; } })();
 </script></body></html>
