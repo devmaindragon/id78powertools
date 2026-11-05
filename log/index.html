@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mgremaps - Power Display Log</title>
+<title>dev.main.dragon</title>
 <style>
  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#0b0c10;color:#eef0f3}
  header{padding:14px 16px;border-bottom:1px solid #2a2d33}header b{color:#e0202c}
@@ -9,8 +9,13 @@
  .wrap{overflow:auto;max-height:70vh}.btn{display:inline-block;margin:8px 8px 8px 0;padding:10px 14px;background:#e0202c;color:#fff;border-radius:8px;text-decoration:none;font-weight:600}
  .sum{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:10px 0}.c{background:#15171c;border-radius:8px;padding:8px}.c small{color:#9aa0a8;display:block}.c span{font-size:20px}
  .err{color:#ff6b6b}
+ .f{background:#15171c;border-radius:10px;padding:10px 12px;margin:8px 0}.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+ .u{color:#9aa0a8;font-size:13px}.code{font-weight:700;font-size:16px;font-family:ui-monospace,Menlo,monospace}.d{margin-top:6px;font-size:14px;line-height:1.35}
+ .tag{font-size:12px;padding:3px 8px;border-radius:999px;font-weight:600;white-space:nowrap}.t-crit{background:#e0202c33;color:#ff6b6b;border:1px solid #e0202c88}
+ .t-warn{background:#ffb02022;color:#ffc24d;border:1px solid #ffb02077}.t-dim{background:#ffffff14;color:#b9bec6;border:1px solid #ffffff33}
+ .pg{color:#9aa0a8;font-size:13px;margin-top:10px}.btn2{background:#2a2d33}
 </style></head><body>
-<header><b>MG</b>REMAPS &middot; Power Display log <span id="meta" style="color:#9aa0a8"></span></header>
+<header>dev.main.dragon <span id="meta" style="color:#9aa0a8"></span></header>
 <main>
  <div id="out"><p>Link okunuyor...</p></div>
 </main>
@@ -46,9 +51,32 @@ async function inflateRaw(bytes){
 function unpack(buf){ if(buf[0]!==1) throw new Error('bilinmeyen log surumu '+buf[0]); const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
   const rd=()=>{ let z=0,m=1,b; do{ b=buf[o++]; z+=(b&127)*m; m*=128; }while(b&128); return (z%2)?-(z+1)/2:z/2; };
   for(let r=0;r<n;r++){ const cur=F.map((f,i)=>(prev?prev[i]:0)+rd()); prev=cur; const row={t:r/hz}; F.forEach(([k,l,sc],i)=>{ row[k]=cur[i]===SENT?null:cur[i]/sc; }); rows.push(row); } return {hz,rows}; }
+// Fault Scanner (f1): ayni bicim, uygulamanin dtclink.js dosyasi ile: deflate-raw + base64url, sekme ile ayrilmis metin.
+const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function stat(b){ if(b&1) return ['AKTIF','crit']; if(b&0x80) return ['ARIZA LAMBASI','crit']; if(b&4) return ['BEKLEYEN','warn']; if(b&8) return ['KAYITLI','dim']; return ['GECMIS','dim']; }
+async function showFaults(out, vin, data){
+  const txt=new TextDecoder().decode(await inflateRaw(b64url(data))); const lines=txt.split('\n'); const h=lines[0].split('\t');
+  if(h[0]!=='f1') throw new Error('bilinmeyen ariza listesi bicimi');
+  const at=new Date(Number(h[1])*1000), page=+h[2], pages=+h[3], total=+h[4], active=+h[5], units=+h[6], scanned=+h[7], demo=h[8]==='1', ver=h[9]||'';
+  const p=(n)=>String(n).padStart(2,'0'); const when=p(at.getDate())+'.'+p(at.getMonth()+1)+'.'+at.getFullYear()+' '+p(at.getHours())+':'+p(at.getMinutes());
+  const rows=lines.slice(1).filter(Boolean).map(l=>{ const c=l.split('\t'); return {unit:c[0],code:c[1],st:parseInt(c[2],16)||0,info:c[3]==='i',desc:c.slice(4).join(' ')}; });
+  document.getElementById('meta').textContent=' \u00b7 VIN ...'+vin+' \u00b7 '+when+(demo?' \u00b7 DEMO':'');
+  let html='<div class="sum" style="grid-template-columns:repeat(3,1fr)"><div class="c"><small>Toplam</small><span>'+total+'</span></div><div class="c"><small>Aktif</small><span style="color:'+(active?'#ff6b6b':'inherit')+'">'+active+'</span></div><div class="c"><small>Unite</small><span>'+units+'</span></div></div>';
+  html+='<a class="btn" id="csv" href="#">CSV indir</a><a class="btn btn2" id="cp" href="#">Metni kopyala</a>';
+  if(!rows.length) html+='<p>Ariza yok ('+scanned+' unite tarandi).</p>';
+  for(const r of rows){ const [lb,sv]=stat(r.st);
+    html+='<div class="f"><div class="top"><div><div class="u">'+esc(r.unit)+'</div><div class="code">'+esc(r.code)+'</div></div><span class="tag t-'+sv+'">'+lb+'</span></div>'
+      +'<div class="d">'+(r.info?'<b>BILGI:</b> ':'')+esc(r.desc||'Aciklama yok')+'</div></div>'; }
+  html+='<div class="pg">QR '+page+' / '+pages+(pages>1?' (her QR kendi sayfasini acar)':'')+' \u00b7 Fault Scanner '+esc(ver)+'</div>';
+  out.innerHTML=html;
+  const csv='unite,kod,durum,bilgi,aciklama\n'+rows.map(r=>[r.unit,r.code,stat(r.st)[0],r.info?'1':'',r.desc].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.getElementById('csv'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='arizalar_'+vin+(pages>1?'_'+page:'')+'.csv';
+  const plain='VIN ...'+vin+' - '+when+(pages>1?' (QR '+page+'/'+pages+')':'')+'\n'+rows.map(r=>r.unit+' '+r.code+' '+stat(r.st)[0]+(r.info?' BILGI':'')+' - '+r.desc).join('\n');
+  document.getElementById('cp').onclick=async(ev)=>{ ev.preventDefault(); try{ await navigator.clipboard.writeText(plain); ev.target.textContent='Kopyalandi'; }catch(e){ prompt('Metni kopyala:',plain); } };
+}
 (async()=>{ const out=document.getElementById('out');
  try{ const h=location.hash.slice(1); if(!h) throw new Error('Bu sayfa, aracin ekranindaki QR kodu okutularak acilir.');
-  const parts=h.split('.'); if(parts[0]!=='v1') throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
+  const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(parts[0]!=='v1') throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
   const {hz,rows}=unpack(await inflateRaw(b64url(data)));
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
   const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?Math.max(...v):null; };
