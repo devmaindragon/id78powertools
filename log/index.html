@@ -29,6 +29,8 @@ const F1=[['oil','Oil °C',1],['coolant','Water °C',1],['egt','Exhaust °C',1],
   ['timing','Timing °',2],['misfire','Misfire',1],['rpm','RPM',1],['speed','km/h',1],['gx','g lat',50],['gy','g long',50]];
 // v2 (orta bolum "6 values"): ayni alanlar + HPFP, Wastegate, Knock, Lambda, Oil Press, Trans Temp
 const F2=F1.concat([['hpfp','HPFP bar',1],['wg','Wastegate %',1],['knock','Knock retard °',2],['lambda','Lambda',100],['oilp','Oil Press bar',10],['trans','Trans °C',1]]);
+// v3 (v1.5): g yok; Lambda, Wastegate, HPFP, LPFP, Oil Press, Trans Temp ve Knock retard
+const F3=F1.filter(f=>f[0]!=='gx'&&f[0]!=='gy').concat([['lambda','Lambda',1000],['wg','Wastegate %',1],['hpfp','HPFP bar',1],['lpfp','LPFP bar',10],['oilp','Oil Press bar',10],['trans','Trans °C',1],['knock','Knock retard °',2]]);
 let F=F1;
 const SENT=-32768;
 function b64url(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
@@ -55,7 +57,7 @@ async function inflateRaw(bytes){
   if (typeof DecompressionStream==='function'){ try{ const ds=new DecompressionStream('deflate-raw'); const w=ds.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(ds.readable).arrayBuffer()); }catch(e){ /* fall through */ } }
   return inflateRawJS(bytes);
 }
-function unpack(buf){ if(buf[0]!==1&&buf[0]!==2) throw new Error('bilinmeyen log surumu '+buf[0]); F=buf[0]===2?F2:F1; const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
+function unpack(buf){ if(buf[0]<1||buf[0]>3) throw new Error('bilinmeyen log surumu '+buf[0]); F=buf[0]===3?F3:buf[0]===2?F2:F1; const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
   const rd=()=>{ let z=0,m=1,b; do{ b=buf[o++]; z+=(b&127)*m; m*=128; }while(b&128); return (z%2)?-(z+1)/2:z/2; };
   for(let r=0;r<n;r++){ const cur=F.map((f,i)=>(prev?prev[i]:0)+rd()); prev=cur; const row={t:r/hz}; F.forEach(([k,l,sc],i)=>{ row[k]=cur[i]===SENT?null:cur[i]/sc; }); rows.push(row); } return {hz,rows}; }
 // Fault Scanner (f1): ayni bicim, uygulamanin dtclink.js dosyasi ile: deflate-raw + base64url, sekme ile ayrilmis metin.
@@ -111,7 +113,7 @@ function chart(rows){
 }
 (async()=>{ const out=document.getElementById('out');
  try{ const h=location.hash.slice(1); if(!h) throw new Error('Bu sayfa, aracin ekranindaki QR kodu okutularak acilir.');
-  const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(parts[0]!=='v1'&&parts[0]!=='v2') throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
+  const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(!/^v[123]$/.test(parts[0])) throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
   const {hz,rows}=unpack(await inflateRaw(b64url(data)));
   F=F.filter(([k])=>rows.some(r=>r[k]!==null&&r[k]!==undefined));   // fields not logged (g since 2026-11-06) are left out
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
