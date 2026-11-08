@@ -121,7 +121,7 @@ function chart(rows){
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
   const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?(/^knock/.test(k)?v.reduce((a,b)=>Math.abs(b)>Math.abs(a)?b:a):Math.max(...v)):null; };   // knock: sifirdan en uzak
   let html='<div class="gbox"><canvas id="g"></canvas><div class="rd" id="rd"></div></div><div class="chips" id="chips"></div>';
-  html+='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+(/^knock/.test(k)?' (en kotu)':' (tepe)')+'</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
+  // v1.6: no peak boxes (his choice)
   html+='<a class="btn" id="csv" href="#">CSV indir</a><div class="wrap"><table><thead><tr><th>t (sn)</th>'+F.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>';
   for(const r of rows){ html+='<tr><td>'+r.t.toFixed(1)+'</td>'+F.map(([k])=>'<td>'+(r[k]===null?'--':r[k])+'</td>').join('')+'</tr>'; } html+='</tbody></table></div>';
   out.innerHTML=html;
