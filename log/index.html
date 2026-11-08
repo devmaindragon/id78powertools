@@ -31,6 +31,8 @@ const F1=[['oil','Oil °C',1],['coolant','Water °C',1],['egt','Exhaust °C',1],
 const F2=F1.concat([['hpfp','HPFP bar',1],['wg','Wastegate %',1],['knock','Knock retard °',2],['lambda','Lambda',100],['oilp','Oil Press bar',10],['trans','Trans °C',1]]);
 // v3 (v1.5): g yok; Lambda, Wastegate, HPFP, LPFP, Oil Press, Trans Temp ve Knock retard
 const F3=F1.filter(f=>f[0]!=='gx'&&f[0]!=='gy').concat([['lambda','Lambda',1000],['wg','Wastegate %',1],['hpfp','HPFP bar',1],['lpfp','LPFP bar',10],['oilp','Oil Press bar',10],['trans','Trans °C',1],['knock','Knock retard °',2]]);
+// v4 (v1.6): v3 + her silindirin retard'i (S1..S4)
+const F4=F3.concat([['knock1','Retard S1 °',2],['knock2','Retard S2 °',2],['knock3','Retard S3 °',2],['knock4','Retard S4 °',2]]);
 let F=F1;
 const SENT=-32768;
 function b64url(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
@@ -57,7 +59,7 @@ async function inflateRaw(bytes){
   if (typeof DecompressionStream==='function'){ try{ const ds=new DecompressionStream('deflate-raw'); const w=ds.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(ds.readable).arrayBuffer()); }catch(e){ /* fall through */ } }
   return inflateRawJS(bytes);
 }
-function unpack(buf){ if(buf[0]<1||buf[0]>3) throw new Error('bilinmeyen log surumu '+buf[0]); F=buf[0]===3?F3:buf[0]===2?F2:F1; const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
+function unpack(buf){ if(buf[0]<1||buf[0]>4) throw new Error('bilinmeyen log surumu '+buf[0]); F=buf[0]===4?F4:buf[0]===3?F3:buf[0]===2?F2:F1; const hz=buf[1], n=buf[2]|(buf[3]<<8); let o=4, prev=null; const rows=[];
   const rd=()=>{ let z=0,m=1,b; do{ b=buf[o++]; z+=(b&127)*m; m*=128; }while(b&128); return (z%2)?-(z+1)/2:z/2; };
   for(let r=0;r<n;r++){ const cur=F.map((f,i)=>(prev?prev[i]:0)+rd()); prev=cur; const row={t:r/hz}; F.forEach(([k,l,sc],i)=>{ row[k]=cur[i]===SENT?null:cur[i]/sc; }); rows.push(row); } return {hz,rows}; }
 // Fault Scanner (f1): ayni bicim, uygulamanin dtclink.js dosyasi ile: deflate-raw + base64url, sekme ile ayrilmis metin.
@@ -84,7 +86,7 @@ async function showFaults(out, vin, data){
   document.getElementById('cp').onclick=async(ev)=>{ ev.preventDefault(); try{ await navigator.clipboard.writeText(plain); ev.target.textContent='Kopyalandi'; }catch(e){ prompt('Metni kopyala:',plain); } };
 }
 // Grafik: secilen degerler, her biri kendi olceginde (0-100 %), dokununca o andaki degerler
-const COLS={hpfp:'#00c2ff',wg:'#66e0ff',knock:'#ffd400',lambda:'#b6ff4d',oilp:'#ff9f1c',trans:'#d0a6ff',boost:'#e0202c',rpm:'#4da3ff',timing:'#ffc24d',oil:'#ff8a3d',coolant:'#3dd6c6',egt:'#ff5fa2',iat:'#9b7bff',misfire:'#ff6b6b',speed:'#8fd14f',gx:'#c9ced6',gy:'#7f8792'};
+const COLS={knock1:'#ffe066',knock2:'#ffb84d',knock3:'#ff8c66',knock4:'#ff6680',hpfp:'#00c2ff',wg:'#66e0ff',knock:'#ffd400',lambda:'#b6ff4d',oilp:'#ff9f1c',trans:'#d0a6ff',boost:'#e0202c',rpm:'#4da3ff',timing:'#ffc24d',oil:'#ff8a3d',coolant:'#3dd6c6',egt:'#ff5fa2',iat:'#9b7bff',misfire:'#ff6b6b',speed:'#8fd14f',gx:'#c9ced6',gy:'#7f8792'};
 function chart(rows){
   const cv=document.getElementById('g'), rd=document.getElementById('rd'), chips=document.getElementById('chips');
   let sel=(localStorage.getItem('pdsel')||'boost,rpm,timing').split(',').filter(k=>F.some(f=>f[0]===k));
@@ -117,9 +119,9 @@ function chart(rows){
   const {hz,rows}=unpack(await inflateRaw(b64url(data)));
   F=F.filter(([k])=>rows.some(r=>r[k]!==null&&r[k]!==undefined));   // fields not logged (g since 2026-11-06) are left out
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
-  const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?(k==='knock'?v.reduce((a,b)=>Math.abs(b)>Math.abs(a)?b:a):Math.max(...v)):null; };   // knock: sifirdan en uzak
+  const mx=(k)=>{ const v=rows.map(r=>r[k]).filter(x=>x!==null); return v.length?(/^knock/.test(k)?v.reduce((a,b)=>Math.abs(b)>Math.abs(a)?b:a):Math.max(...v)):null; };   // knock: sifirdan en uzak
   let html='<div class="gbox"><canvas id="g"></canvas><div class="rd" id="rd"></div></div><div class="chips" id="chips"></div>';
-  html+='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+(k==='knock'?' (en kotu)':' (tepe)')+'</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
+  html+='<div class="sum">'; for(const [k,l] of F){ const m=mx(k); html+='<div class="c"><small>'+l+(/^knock/.test(k)?' (en kotu)':' (tepe)')+'</small><span>'+(m===null?'--':m)+'</span></div>'; } html+='</div>';
   html+='<a class="btn" id="csv" href="#">CSV indir</a><div class="wrap"><table><thead><tr><th>t (sn)</th>'+F.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>';
   for(const r of rows){ html+='<tr><td>'+r.t.toFixed(1)+'</td>'+F.map(([k])=>'<td>'+(r[k]===null?'--':r[k])+'</td>').join('')+'</tr>'; } html+='</tbody></table></div>';
   out.innerHTML=html;
