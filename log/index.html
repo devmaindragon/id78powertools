@@ -115,7 +115,7 @@ function chart(rows){
 }
 (async()=>{ const out=document.getElementById('out');
  try{ const h=location.hash.slice(1); if(!h) throw new Error('Bu sayfa, aracin ekranindaki QR kodu okutularak acilir.');
-  const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(!/^v[123]$/.test(parts[0])) throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
+  const parts=h.split('.'); if(parts[0]==='f1') return await showFaults(out, parts[1], parts.slice(2).join('.')); if(!/^v[1-4]$/.test(parts[0])) throw new Error('bilinmeyen link bicimi'); const vin=parts[1], data=parts.slice(2).join('.');
   const {hz,rows}=unpack(await inflateRaw(b64url(data)));
   F=F.filter(([k])=>rows.some(r=>r[k]!==null&&r[k]!==undefined));   // fields not logged (g since 2026-11-06) are left out
   document.getElementById('meta').textContent=' · VIN ...'+vin+' · '+rows.length+' ornek · '+hz+' Hz · '+(rows.length/hz).toFixed(0)+' sn';
